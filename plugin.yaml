@@ -1,0 +1,51 @@
+name: max-platform
+label: MAX
+kind: platform
+version: 1.0.0
+description: >
+  MAX (max.ru) messenger gateway adapter for Hermes Agent.
+  Connects a MAX bot (token issued by @MasterBot) via long polling
+  (GET /updates) for inbound messages and the MAX Bot REST API
+  (POST /messages) for outbound — same ergonomics as the Telegram
+  long-polling adapter, no public URL required.  No external SDK:
+  uses httpx, already a Hermes dependency.  MAX Bot API is the
+  TamTam-derived REST API documented at https://dev.max.ru/.
+author: Aleksey Dobrotvorskiy
+# ``requires_env`` / ``optional_env`` rich-dict entries are surfaced in the
+# ``hermes config`` UI via the platform-plugin env var injector in
+# ``hermes_cli/config.py``.
+requires_env:
+  - name: MAX_TOKEN
+    description: "Bot access token issued by @MasterBot in MAX. Reissue with /revoke if leaked."
+    prompt: "MAX bot token"
+    url: "https://dev.max.ru/"
+    password: true
+optional_env:
+  - name: MAX_ALLOWED_USERS
+    description: "Comma-separated MAX numeric user_ids allowed to talk to the bot."
+    prompt: "Allowed user_ids (comma-separated)"
+    password: false
+  - name: MAX_ALLOW_ALL_USERS
+    description: "Allow anyone who messages the bot (dev only)."
+    prompt: "Allow all users? (true/false)"
+    password: false
+  - name: MAX_HOME_CHANNEL
+    description: "Default chat_id for cron / notification delivery (deliver=max)."
+    prompt: "Home chat_id (or empty)"
+    password: false
+  - name: MAX_API_BASE
+    description: "Override API base URL (default https://platform-api.max.ru)."
+    prompt: "API base URL (or empty)"
+    password: false
+  - name: MAX_MARKDOWN
+    description: "Send messages with format=markdown (default false = plain text)."
+    prompt: "Use markdown? (true/false)"
+    password: false
+  - name: MAX_POLL_TIMEOUT
+    description: "Long-poll timeout in seconds, 0-90 (default 30)."
+    prompt: "Long-poll timeout"
+    password: false
+  - name: MAX_API_VERSION
+    description: "Optional API version sent as ?v= on each request (default: omitted = latest)."
+    prompt: "API version (or empty)"
+    password: false
