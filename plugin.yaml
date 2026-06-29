@@ -34,7 +34,7 @@ optional_env:
     prompt: "Home chat_id (or empty)"
     password: false
   - name: MAX_API_BASE
-    description: "Override API base URL (default https://platform-api.max.ru)."
+    description: "Override API base URL (default https://platform-api2.max.ru)."
     prompt: "API base URL (or empty)"
     password: false
   - name: MAX_MARKDOWN
@@ -48,4 +48,8 @@ optional_env:
   - name: MAX_API_VERSION
     description: "Optional API version sent as ?v= on each request (default: omitted = latest)."
     prompt: "API version (or empty)"
+    password: false
+  - name: MAX_CA_BUNDLE
+    description: "Path to an extra CA (PEM) to trust in addition to the default roots, scoped to this adapter. Needed for platform-api2.max.ru (served by the Russian Trusted Root CA, absent from the default store)."
+    prompt: "Extra CA bundle path (or empty)"
     password: false

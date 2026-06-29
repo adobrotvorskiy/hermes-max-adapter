@@ -11,7 +11,9 @@ MAX Bot API is the TamTam-derived REST API documented at https://dev.max.ru/.
 Verified against the official Go client
 (github.com/max-messenger/max-bot-api-client-go):
 
-* Base URL          ``https://platform-api.max.ru/``
+* Base URL          ``https://platform-api2.max.ru/`` (migrated off
+                    ``platform-api.max.ru``; new host served by a CA outside the
+                    default trust store — see ``MAX_CA_BUNDLE``)
 * Auth              ``Authorization: <raw token>`` header (no ``Bearer`` prefix)
 * Optional ``?v=``  API version query param (omitted by default → latest)
 * Inbound           ``GET /updates`` (marker + timeout long poll)
@@ -27,14 +29,15 @@ Configuration in config.yaml::
           enabled: true
           extra:
             token: "..."          # or env MAX_TOKEN
-            api_base: "https://platform-api.max.ru"
+            api_base: "https://platform-api2.max.ru"
+            ca_bundle: ""         # extra CA (PEM) path; see MAX_CA_BUNDLE
             markdown: false
             poll_timeout: 30
             allowed_users: []     # empty = use env allowlist
             home_channel: "<chat_id>"
 
 Or via environment variables (override config.yaml):
-    MAX_TOKEN, MAX_API_BASE, MAX_MARKDOWN, MAX_POLL_TIMEOUT,
+    MAX_TOKEN, MAX_API_BASE, MAX_CA_BUNDLE, MAX_MARKDOWN, MAX_POLL_TIMEOUT,
     MAX_API_VERSION, MAX_ALLOWED_USERS, MAX_ALLOW_ALL_USERS, MAX_HOME_CHANNEL
 """
 
@@ -69,7 +72,7 @@ from gateway.config import Platform, PlatformConfig
 # Constants
 # ---------------------------------------------------------------------------
 
-DEFAULT_API_BASE = "https://platform-api.max.ru"
+DEFAULT_API_BASE = "https://platform-api2.max.ru"
 # MAX caps message text at 4000 characters.
 MAX_MESSAGE_LENGTH = 4000
 # Long-poll defaults (server allows 0–90s; httpx read timeout adds a buffer).
@@ -83,6 +86,35 @@ DEDUP_MAX_SIZE = 2000
 
 def _truthy(value: Optional[str]) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _make_verify(ca_bundle: Optional[str]):
+    """Build the httpx ``verify`` value for the adapter HTTP clients.
+
+    With no ``ca_bundle`` set, return ``True`` (the httpx default certifi trust
+    store, unchanged behavior). When set, trust that PEM bundle IN ADDITION to
+    the normal roots, scoped to this adapter clients only (no system-wide trust
+    change). Needed when the API host is served by a CA missing from the default
+    store, e.g. ``platform-api2.max.ru`` chained to the Russian Trusted Root CA.
+    """
+    if not ca_bundle:
+        return True
+    path = os.path.expanduser(ca_bundle)
+    if not os.path.isfile(path):
+        logger.warning("MAX: MAX_CA_BUNDLE %s not found; using default CAs", path)
+        return True
+    import ssl
+    try:
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except Exception:  # pragma: no cover - certifi normally present
+        ctx = ssl.create_default_context()
+    try:
+        ctx.load_verify_locations(cafile=path)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("MAX: failed to load MAX_CA_BUNDLE %s: %s; using default CAs", path, e)
+        return True
+    return ctx
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +147,12 @@ class MaxAdapter(BasePlatformAdapter):
         # API version sent as ?v=; omitted by default (server uses latest).
         self.api_version: str = (
             os.getenv("MAX_API_VERSION") or extra.get("api_version") or ""
+        ).strip()
+        # Extra CA to trust IN ADDITION to the default roots, scoped to this
+        # adapter only (no system-wide change). Needed when the API host uses a
+        # CA absent from the default store (platform-api2 -> Russian Trusted Root).
+        self._ca_bundle: str = (
+            os.getenv("MAX_CA_BUNDLE") or extra.get("ca_bundle") or ""
         ).strip()
 
         # Formatting. MAX-flavored markdown matches the CommonMark that Hermes
@@ -229,8 +267,10 @@ class MaxAdapter(BasePlatformAdapter):
                 limits = platform_httpx_limits()
             except Exception:
                 pass
+            verify = _make_verify(self._ca_bundle)
             self._http_client = (
-                httpx.AsyncClient(limits=limits) if limits is not None else httpx.AsyncClient()
+                httpx.AsyncClient(limits=limits, verify=verify)
+                if limits is not None else httpx.AsyncClient(verify=verify)
             )
         except Exception as e:
             logger.error("MAX: failed to create HTTP client: %s", self._safe(str(e)))
@@ -994,8 +1034,9 @@ async def _standalone_send(
     if markdown:
         body["format"] = "markdown"
 
+    verify = _make_verify(os.getenv("MAX_CA_BUNDLE") or extra.get("ca_bundle") or "")
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, verify=verify) as client:
             resp = await client.post(
                 f"{api_base}/messages", params=params, json=body,
                 headers={"Authorization": token},

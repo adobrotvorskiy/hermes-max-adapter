@@ -66,7 +66,8 @@ from environment variables (env overrides config):
 | Env var | Default | Purpose |
 |---|---|---|
 | `MAX_TOKEN` | — (required) | Bot token from @MasterBot. Reissue with `/revoke` if leaked. |
-| `MAX_API_BASE` | `https://platform-api.max.ru` | Override API base URL. |
+| `MAX_API_BASE` | `https://platform-api2.max.ru` | Override API base URL. |
+| `MAX_CA_BUNDLE` | — | Path to an extra CA (PEM) trusted **in addition** to the default roots, scoped to this adapter only. Required for `platform-api2.max.ru` (Russian Trusted Root CA — absent from the default store). See [note](#platform-api2-and-the-russian-trusted-root-ca). |
 | `MAX_API_VERSION` | omitted (latest) | Optional `?v=` API version on each request. |
 | `MAX_MARKDOWN` | `false` | Send messages with `format=markdown`. |
 | `MAX_POLL_TIMEOUT` | `30` | Long-poll timeout, seconds (0–90). |
@@ -79,7 +80,7 @@ is redacted from logs.
 
 ## API notes (verified)
 
-- Base URL: `https://platform-api.max.ru/`
+- Base URL: `https://platform-api2.max.ru/` (migrated from `platform-api.max.ru`).
 - Auth header: `Authorization: <raw token>` — **no `Bearer` prefix**.
 - Inbound: `GET /updates` (marker + timeout long poll). No update-type
   subscription is required; the bot receives all updates by default.
@@ -91,6 +92,30 @@ Inbound attachment shapes match the official client's schema: `image`
 (`payload {url, token, photo_id}`), `audio`/`video`/`file` (`payload {url, token}`,
 `file` also carries `filename`/`size`), `sticker`, `contact`, `share`, `location`,
 `inline_keyboard`.
+
+## platform-api2 and the Russian Trusted Root CA
+
+MAX migrated its Bot API host from `platform-api.max.ru` to
+**`platform-api2.max.ru`**. The new host presents a `*.max.ru` certificate
+chained to the **Russian Trusted Root CA** (issued by the RU Ministry of Digital
+Development), which is **not** in the default certifi/system trust store — so
+plain TLS verification fails with `CERTIFICATE_VERIFY_FAILED`.
+
+To connect, point `MAX_CA_BUNDLE` at a PEM of that root CA. **Verify the
+fingerprint out-of-band before trusting it** — do not skip this:
+
+```bash
+# SHA-256 of "Russian Trusted Root CA" (verify against an independent source):
+#   D2:6D:2D:02:31:B7:C3:9F:92:CC:73:85:12:BA:54:10:35:19:E4:40:5D:68:B5:BD:70:3E:97:88:CA:8E:CF:31
+openssl x509 -in russian_trusted_root_ca.pem -noout -fingerprint -sha256
+export MAX_CA_BUNDLE="$HOME/.hermes/plugins/max/russian_trusted_root_ca.pem"
+```
+
+The adapter trusts this CA **only for its own httpx clients** — it never touches
+the system trust store. This is deliberate: the Russian Trusted Root CA is a
+state-operated CA that can issue certificates for any domain
+([EFF analysis](https://www.eff.org/deeplinks/2022/03/you-should-not-trust-russias-new-trusted-root-ca)),
+so its trust is confined to the single process that needs it.
 
 ## Known limitation — inbound voice messages
 
